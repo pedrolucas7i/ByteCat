@@ -258,7 +258,7 @@ void showCredsDisplay() {
         return;
     }
 
-    String irLines[5]; // Store last 5 IR lines
+    String credsLines[3]; // Store last 5 IR lines
     int lineCount = 0;
     while (file.available() && lineCount < 5) {
         String line = file.readStringUntil('\n');
@@ -271,7 +271,7 @@ void showCredsDisplay() {
 
     // Display from the most recent
     int y = 10;
-    for (int i = 0; i < lineCount; i++) {
+    for (int i = 24; i < lineCount; i++) {
         display.setCursor(0, y);
         display.println(irLines[i]);
         y += 10;
@@ -293,7 +293,7 @@ void showIRsOnDisplay() {
         return;
     }
 
-    String irLines[5]; // Store last 5 IR lines
+    String irLines[3]; // Store last 5 IR lines
     int lineCount = 0;
     while (file.available() && lineCount < 5) {
         String line = file.readStringUntil('\n');
@@ -306,7 +306,7 @@ void showIRsOnDisplay() {
 
     // Display from the most recent
     int y = 10;
-    for (int i = 0; i < lineCount; i++) {
+    for (int i = 24; i < lineCount; i++) {
         display.setCursor(0, y);
         display.println(irLines[i]);
         y += 10;
