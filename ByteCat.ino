@@ -258,9 +258,9 @@ void showCredsDisplay() {
         return;
     }
 
-    String credsLines[3]; // Store last 5 IR lines
+    String credsLines[2];
     int lineCount = 0;
-    while (file.available() && lineCount < 5) {
+    while (file.available() && lineCount < 2) {
         String line = file.readStringUntil('\n');
         line.trim(); // Remove newline/carriage return
         if (line.length() > 0) {
@@ -270,8 +270,8 @@ void showCredsDisplay() {
     file.close();
 
     // Display from the most recent
-    int y = 10;
-    for (int i = 24; i < lineCount; i++) {
+    int y = 32;
+    for (int i = 0; i < lineCount; i++) {
         display.setCursor(0, y);
         display.println(credsLines[i]);
         y += 10;
@@ -293,9 +293,9 @@ void showIRsOnDisplay() {
         return;
     }
 
-    String irLines[3]; // Store last 5 IR lines
+    String irLines[2];
     int lineCount = 0;
-    while (file.available() && lineCount < 5) {
+    while (file.available() && lineCount < 2) {
         String line = file.readStringUntil('\n');
         line.trim(); // Remove newline/carriage return
         if (line.length() > 0) {
@@ -305,8 +305,8 @@ void showIRsOnDisplay() {
     file.close();
 
     // Display from the most recent
-    int y = 10;
-    for (int i = 24; i < lineCount; i++) {
+    int y = 32;
+    for (int i = 0; i < lineCount; i++) {
         display.setCursor(0, y);
         display.println(irLines[i]);
         y += 10;
@@ -540,7 +540,7 @@ void executeHIDPayload() {
 
 // --- SETUP FUNCTION ---
 void setup() {
-    Serial.begin(1159200);
+    Serial.begin(115200);
     Serial.println("\n--- ESP32 Hacker Toolkit Starting ---");
 
     // Initialize button pins
@@ -568,7 +568,6 @@ void setup() {
     }
     display.setTextColor(WHITE);
     display.display(); // Clear buffer and show Adafruit logo initially
-    delay(2000);
     display.clearDisplay();
     updateDisplay("Initializing", "Please Wait...", 0, true);
 
