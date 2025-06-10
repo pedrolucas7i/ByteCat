@@ -264,7 +264,7 @@ void showCredsDisplay() {
         String line = file.readStringUntil('\n');
         line.trim(); // Remove newline/carriage return
         if (line.length() > 0) {
-            irLines[lineCount++] = line;
+            credsLines[lineCount++] = line;
         }
     }
     file.close();
