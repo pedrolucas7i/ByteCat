@@ -37,13 +37,13 @@ int currentSpoofSSIDIdx = 0;
 enum AppMode {
     MODE_STANDBY = 0,
     MODE_SSID_SPOOF,
-    MODE_CAPTIVE_PORTAL,
-    MODE_EVIL_TWIN_SCAN,   // Dedicated mode for Wi-Fi scanning
-    MODE_EVIL_TWIN_AP,     // AP mode for Evil Twin after scan
+    MODE_EVIL_TWIN_SCAN,    // Dedicated mode for Wi-Fi scanning
+    MODE_EVIL_TWIN_AP,      // AP mode for Evil Twin after scan
     MODE_SHOW_CREDS,
     MODE_SHOW_IRS,
     MODE_BLE_HID_READY,
-    MODE_BLE_HID_PAYLOAD
+    MODE_BLE_HID_PAYLOAD,
+    MODE_MENU // New mode for the bitmap menu
 };
 AppMode currentAppMode = MODE_STANDBY;
 
@@ -85,6 +85,103 @@ const char* html_page = R"rawliteral(
 <div class="note">By logging in, you accept the Terms and Conditions.</div></div></body></html>
 )rawliteral";
 
+// --- MENU BITMAPS ---
+// *** IMPORTANT: YOU CAN REPLACE THESE WITH YOUR DIFERENTS 16x16 1-BIT MONOCHROME BITMAPS ***
+// You can use a tool like Image2cpp (https://jlamch.net/MXChipWelcome/)
+// Set orientation to Horizontal, size to 16x16, and make sure it's 1-bit.
+
+const unsigned char bmp_wifi[] PROGMEM = { // Example: A simple WiFi symbol
+    0xff, 0xff, 0xff, 0xff, 0xf8, 0x1f, 0xe0, 0x07, 0xc3, 0xc1, 0x0f, 0xf0, 0x3c, 0x1c, 0xf0, 0x0f, 
+    0xe1, 0xc7, 0xe7, 0xe7, 0xff, 0x7f, 0xfc, 0x3f, 0xfc, 0x3f, 0xfe, 0x7f, 0xff, 0xff, 0xff, 0xff
+};
+const unsigned char bmp_ap[] PROGMEM = { // Example: An Access Point symbol
+    0xff, 0xff, 0xf1, 0x8f, 0xe6, 0x67, 0x79, 0x9e, 0xbe, 0x7d, 0xbd, 0xbd, 0xde, 0x7b, 0xdf, 0xfb, 
+    0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00, 0x00, 0x80, 0x01, 0xff, 0xff
+};
+const unsigned char bmp_multiple_ap[] PROGMEM = { // Example: A magnifying glass
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xdf, 0xfb, 0x97, 0xe9, 0xaf, 0xf5, 0xab, 0xd5, 0x2a, 0x54, 
+    0x2a, 0x54, 0xab, 0xd5, 0xaf, 0xf5, 0x97, 0xe9, 0xdf, 0xfb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+};
+const unsigned char bmp_creds[] PROGMEM = { // Example: A lock or key
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xcf, 0xff, 0x87, 0xff, 0x03, 0xff, 0x30, 0x00, 
+    0x30, 0x00, 0x03, 0xe1, 0x87, 0xe3, 0xcf, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+};
+const unsigned char bmp_ir[] PROGMEM = { // Example: An IR remote icon
+    0xf0, 0x0f, 0xf7, 0xef, 0xff, 0xff, 0xf0, 0x0f, 0xff, 0xff, 0xf8, 0x1f, 0xff, 0xff, 0xff, 0xff, 
+    0xfc, 0x3f, 0xff, 0xff, 0xff, 0xff, 0xfc, 0x3f, 0xf9, 0x9f, 0xf3, 0xcf, 0xf7, 0xef, 0x00, 0x00
+};
+const unsigned char bmp_ble[] PROGMEM = { // Example: Bluetooth symbol
+    0xfe, 0x7f, 0xfe, 0x3f, 0xfe, 0x0f, 0xe6, 0x47, 0xe2, 0x47, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 
+    0xfc, 0x3f, 0xf8, 0x1f, 0xf0, 0x0f, 0xe2, 0x47, 0xe6, 0x47, 0xfe, 0x0f, 0xfe, 0x3f, 0xfe, 0x7f
+};
+const unsigned char bmp_back[] PROGMEM = { // Example: Left arrow or back icon
+    0xe0, 0x07, 0x8f, 0xf1, 0xbf, 0xfd, 0x7f, 0xfc, 0x7f, 0xfe, 0x7e, 0xfe, 0x7d, 0xfe, 0x78, 0x1e, 
+    0x78, 0x1e, 0x7d, 0xfe, 0x7e, 0xfe, 0x7f, 0xfe, 0x3f, 0xfc, 0xbf, 0xfd, 0x8f, 0xf1, 0xe0, 0x07
+};
+const unsigned char bmp_home[] PROGMEM = { // Example: Home icon
+    0xff, 0xff, 0xfc, 0x37, 0xf8, 0x07, 0xf1, 0x87, 0xe2, 0x47, 0xc4, 0x23, 0x88, 0x11, 0x10, 0x08, 
+    0x20, 0x04, 0xc0, 0x03, 0xc0, 0x03, 0xc1, 0x83, 0xc1, 0x83, 0xc1, 0x83, 0xc3, 0x83, 0xff, 0xff
+};
+
+
+// --- MENU STRUCTURE ---
+// Forward declaration for MenuItem to allow self-referencing in SubMenu
+struct MenuItem;
+
+struct SubMenu {
+    const char* name;
+    const MenuItem* items;
+    int numItems;
+};
+
+struct MenuItem {
+    const unsigned char* bitmap;
+    const char* name;
+    AppMode mode; // If this item directly starts a mode
+    const SubMenu* subMenu; // If this item leads to a submenu
+    bool isBack; // True if this item is the "Back" button
+    bool isHome; // True if this item is the "Home" button
+};
+
+// --- SUBMENUS ---
+const MenuItem wifiSubMenuItems[] = {
+    {bmp_multiple_ap, "SSIDs", MODE_SSID_SPOOF, nullptr, false, false},
+    {bmp_ap, "Evil T.", MODE_EVIL_TWIN_SCAN, nullptr, false, false},
+    {bmp_back, "Back", MODE_MENU, nullptr, true, false} // Back button
+};
+const SubMenu wifiSubMenu = {"Wi-Fi Tools", wifiSubMenuItems, sizeof(wifiSubMenuItems) / sizeof(wifiSubMenuItems[0])};
+
+const MenuItem logsSubMenuItems[] = {
+    {bmp_creds, "Cred.", MODE_SHOW_CREDS, nullptr, false, false},
+    {bmp_ir, "IRs", MODE_SHOW_IRS, nullptr, false, false},
+    {bmp_back, "Back", MODE_MENU, nullptr, true, false} // Back button
+};
+const SubMenu logsSubMenu = {"Logs", logsSubMenuItems, sizeof(logsSubMenuItems) / sizeof(logsSubMenuItems[0])};
+
+const MenuItem bleSubMenuItems[] = {
+    {bmp_ble, "BLE HID", MODE_BLE_HID_READY, nullptr, false, false},
+    {bmp_back, "Back", MODE_MENU, nullptr, true, false} // Back button
+};
+const SubMenu bleSubMenu = {"BT Tools", bleSubMenuItems, sizeof(bleSubMenuItems) / sizeof(bleSubMenuItems[0])};
+
+// --- MAIN MENU ITEMS ---
+const MenuItem mainMenuItems[] = {
+    {bmp_wifi, "Wi-Fi", MODE_MENU, &wifiSubMenu, false, false}, // Leads to Wi-Fi submenu
+    {bmp_ble, "BT", MODE_MENU, &bleSubMenu, false, false}, // Leads to BLE submenu
+    {bmp_creds, "Logs", MODE_MENU, &logsSubMenu, false, false}, // Leads to Logs submenu
+    {bmp_home, "Standby", MODE_STANDBY, nullptr, false, false} // Direct action
+};
+
+// Global menu state variables
+enum MenuState {
+    MAIN_MENU,
+    SUB_MENU
+};
+MenuState currentMenuState = MAIN_MENU;
+int selectedMenuItem = 0; // Index for current menu (either main or sub)
+const SubMenu* activeSubMenu = nullptr;
+
+
 // --- SPIFFS UTILITIES ---
 void appendToFile(const char* path, const String& data) {
     File file = SPIFFS.open(path, FILE_APPEND);
@@ -119,24 +216,28 @@ void clearFile(const char* path) {
 }
 
 // --- DISPLAY UTILITIES ---
-void showMascot(bool blink) {
+void showMascotSmall(bool blink) {
     display.setTextSize(1);
-    display.setCursor(0, 0);
+    display.setCursor(0, 0); // Position at top right
     display.println(blink ? ByteCat1[0] : ByteCat2[0]);
     display.setCursor(0, 8);
     display.println(blink ? ByteCat1[1] : ByteCat2[1]);
     display.setCursor(0, 16);
     display.println(blink ? ByteCat1[2] : ByteCat2[2]);
+    // Only display first line to make it smaller
 }
 
 // Optimized updateDisplay to avoid String objects
 void updateDisplay(const char* title, const char* info, int visitors, bool blink) {
     display.clearDisplay();
-    showMascot(blink);
-    display.setCursor(0, 32);
+    if (currentAppMode != MODE_MENU) {
+        showMascotSmall(blink); // Use smaller mascot
+    }
+    display.setCursor(0, 24); // Start text from top-left
+    display.setTextSize(1);
     display.print("Mode: ");
     display.println(title);
-    display.print("SSID: ");
+    display.print("SSID/Status: ");
     display.println(info);
     display.print("Visitors: ");
     display.println(visitors);
@@ -145,25 +246,43 @@ void updateDisplay(const char* title, const char* info, int visitors, bool blink
 
 void showCredsDisplay() {
     display.clearDisplay();
-    showMascot(true); // Always blink when showing credentials
-    display.setCursor(0, 32);
+    showMascotSmall(true); // Always blink when showing credentials
+    display.setCursor(0, 24);
+    display.setTextSize(1);
     display.println("Credentials:");
 
-    // Display the last two captured credentials
-    if (credsCount > 0) {
-        display.println(capturedCreds[credsCount - 1]);
-        if (credsCount > 1) {
-            display.println(capturedCreds[credsCount - 2]);
+    File file = SPIFFS.open("/creds.txt", FILE_READ);
+    if (!file) {
+        display.println("Error opening /creds.txt");
+        display.display();
+        return;
+    }
+
+    String irLines[5]; // Store last 5 IR lines
+    int lineCount = 0;
+    while (file.available() && lineCount < 5) {
+        String line = file.readStringUntil('\n');
+        line.trim(); // Remove newline/carriage return
+        if (line.length() > 0) {
+            irLines[lineCount++] = line;
         }
-    } else {
-        display.println("None captured yet.");
+    }
+    file.close();
+
+    // Display from the most recent
+    int y = 10;
+    for (int i = 0; i < lineCount; i++) {
+        display.setCursor(0, y);
+        display.println(irLines[i]);
+        y += 10;
     }
     display.display();
 }
 
 void showIRsOnDisplay() {
     display.clearDisplay();
-    display.setCursor(0, 0);
+    showMascotSmall(false); // No blinking for IRs
+    display.setCursor(0, 24);
     display.setTextSize(1);
     display.println("IR Signals:");
 
@@ -195,7 +314,69 @@ void showIRsOnDisplay() {
     display.display();
 }
 
-// --- WI-FI & CAPTIVE PORTAL MANAGEMENT ---
+void drawMenu() {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    // showMascotSmall(millis() % 1000 < 500); // Blink mascot in menu
+
+    const MenuItem* currentItems;
+    int currentNumItems;
+    const char* menuTitle;
+
+    if (currentMenuState == MAIN_MENU) {
+        currentItems = mainMenuItems;
+        currentNumItems = sizeof(mainMenuItems) / sizeof(mainMenuItems[0]);
+        menuTitle = "Main Menu";
+    } else { // SUB_MENU
+        currentItems = activeSubMenu->items;
+        currentNumItems = activeSubMenu->numItems;
+        menuTitle = activeSubMenu->name;
+    }
+
+    display.setCursor(0, 0);
+    display.println(menuTitle); // Display menu title
+
+    int startRow = 1; // Start drawing menu items from the second row (after title)
+
+    // Calculate the start index for pagination, if more than 6 items exist
+    int displayableItems = 6; // 3x2 grid
+    int page = selectedMenuItem / displayableItems;
+    int startIdx = page * displayableItems;
+
+    for (int i = 0; i < displayableItems; ++i) {
+        int itemIndex = startIdx + i;
+        if (itemIndex >= currentNumItems) {
+            break; // No more items to display on this page
+        }
+
+        int col = i % 3; // 0, 1, 2
+        int row = i / 3; // 0, 1
+
+        // Calculate position for a 3x2 grid
+        int x = col * (SCREEN_WIDTH / 3);
+        int y = startRow * (SCREEN_HEIGHT / 2) + row * (SCREEN_HEIGHT / 2 - 10) - 24;
+
+        // Draw bitmap (16x16)
+        if (itemIndex >= 3) {
+            display.drawBitmap(x + (SCREEN_WIDTH / 3 - 16) / 2, y + 10, currentItems[itemIndex].bitmap, 16, 16, WHITE);
+            display.setCursor(x + (SCREEN_WIDTH / 3 - (strlen(currentItems[itemIndex].name) * 6)) / 2, y + 28); // 6 is char width
+            display.print(currentItems[itemIndex].name);
+        } else {
+            display.drawBitmap(x + (SCREEN_WIDTH / 3 - 16) / 2, y + 2, currentItems[itemIndex].bitmap, 16, 16, WHITE);
+            display.setCursor(x + (SCREEN_WIDTH / 3 - (strlen(currentItems[itemIndex].name) * 6)) / 2, y + 20); // 6 is char width
+            display.print(currentItems[itemIndex].name);
+        }
+
+        // Highlight selected item
+        if (itemIndex == selectedMenuItem) {
+            display.drawRect(x, y, SCREEN_WIDTH / 3, SCREEN_HEIGHT / 2, WHITE);
+        }
+    }
+    display.display();
+}
+
+
 // --- WI-FI & CAPTIVE PORTAL MANAGEMENT ---
 void stopWifiServices() {
     if (WiFi.getMode() != WIFI_OFF) { // Only attempt to stop if WiFi is active
@@ -313,7 +494,7 @@ void doWiFiScan() {
         for (int i = 0; i < numTargets && i < MAX_STORED_ITEMS; i++) {
             strncpy(targetSSIDs[i], WiFi.SSID(i).c_str(), MAX_SSID_LEN);
             targetSSIDs[i][MAX_SSID_LEN] = '\0'; // Ensure null-termination
-            Serial.printf("  %d: %s (RSSI: %d)\n", i + 1, targetSSIDs[i], WiFi.RSSI(i));
+            Serial.printf("   %d: %s (RSSI: %d)\n", i + 1, targetSSIDs[i], WiFi.RSSI(i));
         }
     }
     selectedTargetIdx = 0; // Reset selection after scan
@@ -359,7 +540,7 @@ void executeHIDPayload() {
 
 // --- SETUP FUNCTION ---
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(1159200);
     Serial.println("\n--- ESP32 Hacker Toolkit Starting ---");
 
     // Initialize button pins
@@ -398,10 +579,12 @@ void setup() {
     IrReceiver.begin(IR_RECV_PIN, ENABLE_LED_FEEDBACK);
     Serial.printf("IR Receiver initialized on pin %d.\n", IR_RECV_PIN);
 
-    // Set initial application mode
-    currentAppMode = MODE_STANDBY;
-    updateDisplay("Standby", "-", visitCount, true);
-    Serial.println("Application initialized in Standby mode.");
+    // Set initial application mode to the menu
+    currentAppMode = MODE_MENU;
+    currentMenuState = MAIN_MENU;
+    selectedMenuItem = 0;
+    drawMenu();
+    Serial.println("Application initialized in Menu mode.");
 }
 
 // --- MAIN LOOP FUNCTION ---
@@ -423,7 +606,8 @@ void loop() {
 
         // Briefly show captured IR on display
         display.clearDisplay();
-        display.setCursor(0, 0);
+        showMascotSmall(false);
+        display.setCursor(0, 24);
         display.println("IR Captured:");
         display.println(irHex);
         display.display();
@@ -432,17 +616,17 @@ void loop() {
         // Return to the previous display state or refresh if in SHOW_IRS mode
         if (currentAppMode == MODE_SHOW_IRS) {
             showIRsOnDisplay(); // Refresh the list of IR signals
-        } else {
+        } else if (currentAppMode == MODE_MENU) {
+            drawMenu(); // Refresh the menu
+        }
+        else {
             // Restore display for the current mode
-            // This is a simplified approach; a more robust solution would push to a display queue
             updateDisplay(
                 (currentAppMode == MODE_SSID_SPOOF) ? "SSID Spoof" :
-                (currentAppMode == MODE_CAPTIVE_PORTAL) ? "Captive Portal" :
-                (currentAppMode == MODE_EVIL_TWIN_AP) ? "Evil Twin" :
+                (currentAppMode == MODE_EVIL_TWIN_AP) ? "Evil T." :
                 (currentAppMode == MODE_BLE_HID_READY) ? "Bluetooth HID" :
                 "Standby",
                 (currentAppMode == MODE_SSID_SPOOF) ? spoofSSIDs[currentSpoofSSIDIdx] :
-                (currentAppMode == MODE_CAPTIVE_PORTAL) ? "LOGIN_PORTAL" :
                 (currentAppMode == MODE_EVIL_TWIN_AP) ? targetSSIDs[selectedTargetIdx] :
                 (currentAppMode == MODE_BLE_HID_READY) ? "Waiting" :
                 "-",
@@ -457,115 +641,154 @@ void loop() {
     if (currentTime - lastDebounceTime > debounceDelay) {
         if (digitalRead(BTN_MODE) == HIGH) {
             lastDebounceTime = currentTime;
-            // Cycle through modes
-            currentAppMode = (AppMode)(((int)currentAppMode + 1) % 9); // Cycle modes 0-8
-            Serial.printf("MODE button pressed. New mode: %d\n", (int)currentAppMode);
-
-            // Actions to perform when entering a new mode
-            switch (currentAppMode) {
-                case MODE_STANDBY:
-                    stopWifiServices();
-                    stopBLE();
-                    updateDisplay("Standby", "-", visitCount, blink);
-                    break;
-                case MODE_SSID_SPOOF:
-                    startCaptivePortal(spoofSSIDs[currentSpoofSSIDIdx]);
-                    updateDisplay("SSID Spoof", spoofSSIDs[currentSpoofSSIDIdx], visitCount, blink);
-                    break;
-                case MODE_CAPTIVE_PORTAL:
-                    startCaptivePortal("LOGIN_PORTAL");
-                    updateDisplay("Captive Portal", "LOGIN_PORTAL", visitCount, blink);
-                    break;
-                case MODE_EVIL_TWIN_SCAN:
-                    // This mode initiates the scan
-                    stopWifiServices();
-                    updateDisplay("Evil Twin Scan", "Scanning...", 0, true);
-                    doWiFiScan(); // This is a blocking call
-                    // After scan, immediately transition to AP mode for Evil Twin
-                    currentAppMode = MODE_EVIL_TWIN_AP;
-                    // Fallthrough to MODE_EVIL_TWIN_AP to start AP with first target
-                case MODE_EVIL_TWIN_AP:
-                    // If arrived here directly (e.g., from cycle) and no targets, do a scan
-                    if (numTargets == 0) {
-                        updateDisplay("Evil Twin Scan", "Scanning...", 0, true);
-                        doWiFiScan();
-                    }
-                    startCaptivePortal(targetSSIDs[selectedTargetIdx]);
-                    updateDisplay("Evil Twin", targetSSIDs[selectedTargetIdx], visitCount, blink);
-                    break;
-                case MODE_SHOW_CREDS:
-                    stopWifiServices();
-                    stopBLE();
-                    showCredsDisplay();
-                    break;
-                case MODE_SHOW_IRS:
-                    stopWifiServices();
-                    stopBLE();
-                    showIRsOnDisplay();
-                    break;
-                case MODE_BLE_HID_READY:
-                    startBLE();
-                    updateDisplay("Bluetooth HID", "Waiting", 0, blink);
-                    break;
-                case MODE_BLE_HID_PAYLOAD:
-                    // This mode is meant to be activated by the ACTION button, not MODE.
-                    // If entered via MODE, revert to BLE_HID_READY.
-                    currentAppMode = MODE_BLE_HID_READY;
-                    updateDisplay("Bluetooth HID", "Waiting", 0, blink);
-                    break;
+            
+            if (currentAppMode == MODE_MENU) { // Only navigate menu if in menu mode
+                int currentNumItems;
+                if (currentMenuState == MAIN_MENU) {
+                    currentNumItems = sizeof(mainMenuItems) / sizeof(mainMenuItems[0]);
+                } else { // SUB_MENU
+                    currentNumItems = activeSubMenu->numItems;
+                }
+                selectedMenuItem = (selectedMenuItem + 1) % currentNumItems;
+                drawMenu();
+            } else {
+                // If not in menu, pressing MODE returns to the main menu
+                stopWifiServices();
+                stopBLE();
+                currentAppMode = MODE_MENU;
+                currentMenuState = MAIN_MENU;
+                selectedMenuItem = 0; // Reset selection for main menu
+                activeSubMenu = nullptr;
+                drawMenu();
             }
+            Serial.printf("MODE button pressed. Current App Mode: %d, Menu State: %d, Selected Menu Item: %d\n", (int)currentAppMode, (int)currentMenuState, selectedMenuItem);
         }
 
         if (digitalRead(BTN_ACTION) == HIGH) {
             lastDebounceTime = currentTime;
-            Serial.printf("ACTION button pressed. Current mode: %d\n", (int)currentAppMode);
+            Serial.printf("ACTION button pressed. Current App Mode: %d, Menu State: %d\n", (int)currentAppMode, (int)currentMenuState);
 
-            switch (currentAppMode) {
-                case MODE_SSID_SPOOF:
-                    // Cycle through spoof SSIDs
-                    currentSpoofSSIDIdx = (currentSpoofSSIDIdx + 1) % (sizeof(spoofSSIDs) / sizeof(spoofSSIDs[0]));
-                    startCaptivePortal(spoofSSIDs[currentSpoofSSIDIdx]);
-                    updateDisplay("SSID Spoof", spoofSSIDs[currentSpoofSSIDIdx], visitCount, blink);
-                    break;
-                case MODE_EVIL_TWIN_AP:
-                    // Cycle through scanned target SSIDs
-                    if (numTargets > 0) {
-                        selectedTargetIdx = (selectedTargetIdx + 1) % numTargets;
-                        startCaptivePortal(targetSSIDs[selectedTargetIdx]);
-                        updateDisplay("Evil Twin", targetSSIDs[selectedTargetIdx], visitCount, blink);
-                    } else {
-                        Serial.println("No targets to cycle through.");
-                        updateDisplay("Evil Twin", "No Targets", visitCount, blink);
+            if (currentAppMode == MODE_MENU) {
+                const MenuItem* selectedItem;
+                if (currentMenuState == MAIN_MENU) {
+                    selectedItem = &mainMenuItems[selectedMenuItem];
+                } else { // SUB_MENU
+                    selectedItem = &activeSubMenu->items[selectedMenuItem];
+                }
+
+                if (selectedItem->isBack) {
+                    if (currentMenuState == SUB_MENU) {
+                        currentMenuState = MAIN_MENU;
+                        selectedMenuItem = 0; // Reset selection for main menu
+                        activeSubMenu = nullptr;
+                        drawMenu();
                     }
-                    break;
-                case MODE_BLE_HID_READY:
-                    executeHIDPayload();
-                    // After sending payload, transition to a "payload sent" state
-                    updateDisplay("Payload Sent", "github.com/pedrolucas7i", 0, blink);
-                    currentAppMode = MODE_BLE_HID_PAYLOAD;
-                    break;
-                default: // Default action for other modes: full reset
-                    stopWifiServices();
-                    stopBLE();
-                    currentAppMode = MODE_STANDBY;
-                    updateDisplay("Resetting", "-", 0, blink);
-                    break;
+                } else if (selectedItem->subMenu != nullptr) { // It's a submenu
+                    activeSubMenu = selectedItem->subMenu;
+                    currentMenuState = SUB_MENU;
+                    selectedMenuItem = 0; // Reset selection for submenu
+                    drawMenu();
+                } else { // It's a direct action item
+                    currentAppMode = selectedItem->mode;
+                    Serial.printf("Activating mode from menu: %d\n", (int)currentAppMode);
+                    // Perform initial setup for the selected mode
+                    switch (currentAppMode) {
+                        case MODE_SSID_SPOOF:
+                            startCaptivePortal(spoofSSIDs[currentSpoofSSIDIdx]);
+                            updateDisplay("SSID Spoof", spoofSSIDs[currentSpoofSSIDIdx], visitCount, blink);
+                            break;
+                        case MODE_EVIL_TWIN_SCAN:
+                            stopWifiServices();
+                            updateDisplay("Evil Twin Scan", "Scanning...", 0, true);
+                            doWiFiScan();
+                            currentAppMode = MODE_EVIL_TWIN_AP; // Automatically transition to AP after scan
+                            startCaptivePortal(targetSSIDs[selectedTargetIdx]);
+                            updateDisplay("Evil Twin", targetSSIDs[selectedTargetIdx], visitCount, blink);
+                            break;
+                        case MODE_SHOW_CREDS:
+                            stopWifiServices();
+                            stopBLE();
+                            showCredsDisplay();
+                            break;
+                        case MODE_SHOW_IRS:
+                            stopWifiServices();
+                            stopBLE();
+                            showIRsOnDisplay();
+                            break;
+                        case MODE_BLE_HID_READY:
+                            startBLE();
+                            updateDisplay("Bluetooth HID", "Waiting", 0, blink);
+                            break;
+                        case MODE_STANDBY:
+                            stopWifiServices();
+                            stopBLE();
+                            updateDisplay("Standby", "-", visitCount, blink);
+                            break;
+                        default:
+                            // Should not happen for direct action items
+                            break;
+                    }
+                }
+            } else { // Not in menu mode, ACTION button has context-specific function
+                switch (currentAppMode) {
+                    case MODE_SSID_SPOOF:
+                        // Cycle through spoof SSIDs
+                        currentSpoofSSIDIdx = (currentSpoofSSIDIdx + 1) % (sizeof(spoofSSIDs) / sizeof(spoofSSIDs[0]));
+                        startCaptivePortal(spoofSSIDs[currentSpoofSSIDIdx]);
+                        updateDisplay("SSID Spoof", spoofSSIDs[currentSpoofSSIDIdx], visitCount, blink);
+                        break;
+                    case MODE_EVIL_TWIN_AP:
+                        // Cycle through scanned target SSIDs
+                        if (numTargets > 0) {
+                            selectedTargetIdx = (selectedTargetIdx + 1) % numTargets;
+                            startCaptivePortal(targetSSIDs[selectedTargetIdx]);
+                            updateDisplay("Evil Twin", targetSSIDs[selectedTargetIdx], visitCount, blink);
+                        } else {
+                            Serial.println("No targets to cycle through.");
+                            updateDisplay("Evil Twin", "No Targets", visitCount, blink);
+                        }
+                        break;
+                    case MODE_BLE_HID_READY:
+                        executeHIDPayload();
+                        // After sending payload, transition to a "payload sent" state
+                        updateDisplay("Payload Sent", "github.com/pedrolucas7i", 0, blink);
+                        currentAppMode = MODE_BLE_HID_PAYLOAD;
+                        break;
+                    case MODE_BLE_HID_PAYLOAD:
+                        // In payload sent state, ACTION button can return to BLE HID ready
+                        currentAppMode = MODE_BLE_HID_READY;
+                        updateDisplay("Bluetooth HID", "Waiting", 0, blink);
+                        break;
+                    case MODE_SHOW_CREDS:
+                    case MODE_SHOW_IRS:
+                        // In these modes, ACTION button can clear logs
+                        if (currentAppMode == MODE_SHOW_CREDS) {
+                            clearFile("/creds.txt");
+                            credsCount = 0; // Reset captured creds count
+                            Serial.println("Credentials log cleared.");
+                        } else { // MODE_SHOW_IRS
+                            clearFile("/irs.txt");
+                            Serial.println("IR signals log cleared.");
+                        }
+                        // After clearing, refresh the display
+                        if (currentAppMode == MODE_SHOW_CREDS) showCredsDisplay();
+                        else showIRsOnDisplay();
+                        break;
+                    default:
+                        // For other modes, maybe go back to menu or do nothing
+                        break;
+                }
             }
         }
     }
 
     // --- CONTINUOUS DISPLAY UPDATE FOR ACTIVE MODES ---
-    // This section ensures the display reflects the current state, visitor count, etc.
-    // It's important for modes where information changes (e.g., visitCount) or to show mascot blinking.
     static unsigned long lastDisplayRefreshTime = 0;
     if (currentTime - lastDisplayRefreshTime > 500) { // Refresh every 500ms
         lastDisplayRefreshTime = currentTime;
         switch (currentAppMode) {
             case MODE_SSID_SPOOF:
                 updateDisplay("SSID Spoof", spoofSSIDs[currentSpoofSSIDIdx], visitCount, blink);
-                break;
-            case MODE_CAPTIVE_PORTAL:
-                updateDisplay("Captive Portal", "LOGIN_PORTAL", visitCount, blink);
                 break;
             case MODE_EVIL_TWIN_AP:
                 updateDisplay("Evil Twin", targetSSIDs[selectedTargetIdx], visitCount, blink);
@@ -578,6 +801,9 @@ void loop() {
                 break;
             case MODE_STANDBY:
                 updateDisplay("Standby", "-", visitCount, blink);
+                break;
+            case MODE_MENU:
+                drawMenu(); // Ensure the menu is always drawn in this mode
                 break;
             // No continuous update for MODE_SHOW_CREDS, MODE_SHOW_IRS, MODE_EVIL_TWIN_SCAN
             // as their content is static or updated on mode entry/IR detection.
