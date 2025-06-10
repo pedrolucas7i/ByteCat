@@ -273,7 +273,7 @@ void showCredsDisplay() {
     int y = 10;
     for (int i = 24; i < lineCount; i++) {
         display.setCursor(0, y);
-        display.println(irLines[i]);
+        display.println(credsLines[i]);
         y += 10;
     }
     display.display();
